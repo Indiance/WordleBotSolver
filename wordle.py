@@ -12,7 +12,6 @@ def load_words():
 feedback_cache = {}
 
 # Feedback parser
-# G = Green, Y = Yellow, B = Gray (Black)
 def get_feedback(guess, actual):
     key = (guess, actual)
     if key in feedback_cache:
@@ -49,31 +48,35 @@ def filter_words(possible_words, guess, feedback):
         return get_feedback(guess, word) == feedback
     return [word for word in possible_words if is_valid(word)]
 
-# Set globally for worker processes
-global_possible_words = []
-
-def entropy_for_guess(guess):
+# Pass both guess and possible_words to worker
+def entropy_for_guess(args):
+    guess, possible_words = args
     feedback_counts = defaultdict(int)
-    for actual in global_possible_words:
+    for actual in possible_words:
         feedback = get_feedback(guess, actual)
         feedback_counts[feedback] += 1
 
     total = sum(feedback_counts.values())
-    entropy = sum(-(count / total) * math.log2(count / total)
-                  for count in feedback_counts.values())
+    if total == 0:
+        return (0.0, guess)
+
+    entropy = sum(
+        -(count / total) * math.log2(count / total)
+        for count in feedback_counts.values()
+    )
 
     return (entropy, guess)
 
+# Explicitly construct list of (guess, possible_words)
 def calculate_entropies_parallel(possible_words, all_words):
-    global global_possible_words
-    global_possible_words = possible_words
-
+    args = [(guess, possible_words) for guess in all_words]
     with Pool(processes=cpu_count()) as pool:
-        entropies = pool.map(entropy_for_guess, all_words)
+        entropies = pool.map(entropy_for_guess, args)
 
     entropies.sort(reverse=True)
     return entropies
 
+# Main driver
 if __name__ == "__main__":
     all_words = load_words()
     possible_words = all_words.copy()
@@ -91,7 +94,7 @@ if __name__ == "__main__":
             for i in range(min(5, len(entropies))):
                 print(f"{i+1}. {entropies[i][1]} (Entropy: {entropies[i][0]:.4f})")
 
-        # Manual guess
+        # User input
         guess = input("Enter your guess (default: 'salet'): ").lower()
         if not guess:
             guess = "salet"
